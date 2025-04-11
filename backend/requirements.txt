@@ -4,4 +4,4 @@ python-dotenv
 streamlit
 requests
 gunicorn
-pinecone-client
+pinecone
