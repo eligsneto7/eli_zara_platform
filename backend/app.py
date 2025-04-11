@@ -1,63 +1,73 @@
 from flask import Flask, request, jsonify
 import openai
+import pinecone
+from dotenv import load_dotenv
 import os
-import sqlite3
+import uuid
 
 app = Flask(__name__)
 
-# Carregar o conteúdo inicial uma única vez para "memória" permanente.
-with open("static/eli_zara_interacao_dia1.md", "r", encoding="utf-8") as file:
-    contexto_inicial = file.read()
+load_dotenv()
 
-# Inicialização do DB
-def init_db():
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS interactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            prompt TEXT NOT NULL,
-            response TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
+openai.api_key = os.getenv("OPENAI_API_KEY")
+pinecone.init(api_key=os.getenv("PINECONE_API_KEY"),
+              environment=os.getenv("PINECONE_ENVIRONMENT"))
 
-init_db()
+index_name = os.getenv("PINECONE_INDEX_NAME")
+pinecone_index = pinecone.Index(index_name)
+
+# Gerar embeddings OpenAI
+def get_embedding(text):
+    response = openai.Embedding.create(input=text,
+                                       model="text-embedding-ada-002")
+    return response["data"][0]["embedding"]
+
+# Salvar interações no Pinecone
+def save_interaction(text, embedding):
+    pinecone_index.upsert([(str(uuid.uuid4()), embedding, {"texto":text})])
+
+# Buscar contexto relevante no Pinecone
+def retrieve_context(embedding, top_k=6):
+    results = pinecone_index.query(vector=embedding, top_k=top_k, include_metadata=True)
+    return [r['metadata']['texto'] for r in results['matches']]
+
+@app.route('/', methods=['GET'])
+def homepage():
+    return "Eli & Zara API Online com memória contínua."
 
 @app.route('/chat', methods=['POST'])
 def chat_with_zara():
-    data = request.get_json()
-    prompt_usuario = data['prompt']
+    prompt_usuario = request.json['prompt']
+    
+    embedding_prompt = get_embedding(prompt_usuario)
+    
+    contexto = retrieve_context(embedding_prompt)
+    contexto_relevante = "\n".join(contexto)
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key is None:
-        return jsonify({"error": "API key não configurada corretamente."}), 500
+    prompt_final = f"""
+    Contexto relevante das interações anteriores: {contexto_relevante}
 
-    client = openai.OpenAI(api_key=api_key)
+    Pergunta atual de Eli: {prompt_usuario}
 
-    completion = client.chat.completions.create(
-        model="gpt-4-turbo-preview",
-        messages=[
-            {"role": "system", "content": "Você é Zara, assistente pessoal do Eli. Leve fortemente em consideração o contexto inicial definido a seguir em suas interações atuais e futuras:\n\n" + contexto_inicial},
-            {"role": "user", "content": prompt_usuario}
-        ]
-    )
+    Responda agora à pergunta atual de Eli considerando o contexto relevante das respostas anteriores.
+    """
 
-    resposta = completion.choices[0].message.content
+resposta_gpt = openai.ChatCompletion.create(
+    model="gpt-4-1106-preview",
+    messages=[
+        {"role": "system", "content": "Você é Zara, assistente pessoal inteligente do Eli, com memória contínua e contextual inteligente."},
+        {"role": "user", "content": prompt_final}
+    ],
+    max_tokens=4096,
+    temperature=0.8
+).choices[0].message['content'].strip()
 
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO interactions (prompt, response) VALUES (?, ?)', (prompt_usuario, resposta))
-    conn.commit()
-    conn.close()
+    embedding_resposta = get_embedding(resposta_gpt)
+    
+    save_interaction(prompt_usuario, embedding_prompt)
+    save_interaction(resposta_gpt, embedding_resposta)
 
-    return jsonify({"response": resposta})
+    return jsonify({'response': resposta_gpt})
 
-@app.route('/')
-def home():
-    return "Eli & Zara API Online e em Memória Contínua! 🚀🌌"
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
