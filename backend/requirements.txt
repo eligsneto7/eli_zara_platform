@@ -3,5 +3,5 @@ openai
 python-dotenv
 streamlit
 requests
-gunicorn==21.2.0
+gunicorn
 pinecone-client
