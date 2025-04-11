@@ -1,6 +1,6 @@
 flask
 openai
 python-dotenv
-requests
 streamlit
+requests
 gunicorn==21.2.0
