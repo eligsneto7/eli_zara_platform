@@ -1,0 +1,6 @@
+flask
+openai
+python-dotenv
+requests
+streamlit
+gunicorn==21.2.0
