@@ -1,2 +1,1 @@
-[tool.streamlit]
-server.enableStaticServing = true
+web: streamlit run zara_ui.py --server.port $PORT --server.address 0.0.0.0
