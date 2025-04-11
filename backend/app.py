@@ -1,31 +1,29 @@
 import os
 import openai
-import pinecone
+from pinecone import Pinecone
 from flask import Flask, request, jsonify
 import uuid
 
 app = Flask(__name__)
 
-# Lendo variáveis do Railway (ambiente seguro)
+# Variáveis diretamente do Railway
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-pinecone.init(api_key=os.getenv("PINECONE_API_KEY"),
-              environment=os.getenv("PINECONE_ENVIRONMENT"))
-
+# Inicialização correta nova do Pinecone
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 index_name = os.getenv("PINECONE_INDEX_NAME")
-pinecone_index = pinecone.Index(index_name)
+pinecone_index = pc.Index(index_name)
 
-# Função prática para gerar embeddings na OpenAI
+# Função para embeddings
 def get_embedding(text):
-    response = openai.Embedding.create(input=text,
-                                       model="text-embedding-ada-002")
+    response = openai.Embedding.create(input=text, model="text-embedding-ada-002")
     return response["data"][0]["embedding"]
 
-# Salva a interação no Pinecone para memória futura inteligente
+# Salvar interação no Pinecone
 def save_interaction(text, embedding):
     pinecone_index.upsert([(str(uuid.uuid4()), embedding, {"texto": text})])
 
-# Recupera contexto relevante no Pinecone baseado em similaridade semântica
+# Busca contexto no Pinecone
 def retrieve_context(embedding, top_k=6):
     results = pinecone_index.query(vector=embedding, top_k=top_k, include_metadata=True)
     return [r['metadata']['texto'] for r in results['matches']]
